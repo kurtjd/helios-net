@@ -6,6 +6,9 @@ use tokio::{
     time::{timeout, Duration},
 };
 
+const MAX_HEADER_LEN: usize = 8 * 1024;
+const MAX_BODY_LEN: usize = 1024 * 1024;
+
 /// Creates a response with server-specific fields.
 fn create_response(
     status_code: HttpStatusCode,
@@ -115,6 +118,12 @@ async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
             }
             _ => (),
         }
+
+        if header.len() > MAX_HEADER_LEN {
+            let _ = create_and_send_response(stream, HttpStatusCode::ContentTooLarge, None, false)
+                .await;
+            return Err(());
+        }
     }
 
     Ok(header)
@@ -174,7 +183,6 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr) {
             }
         };
 
-        // Do some adjustments based on fields in header?
         if !header.is_request() {
             println!("Client sent response? Nonsense, closing connection...");
             let _ = create_and_send_response(&mut stream, HttpStatusCode::BadRequest, None, false)
@@ -183,7 +191,6 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr) {
         };
 
         // If request contains body, read it
-        // Perhaps reject if greater than some size?
         let body = if let Some(length) = header.field_lines.get("content-length") {
             let Ok(length) = length.parse() else {
                 let _ =
@@ -191,6 +198,17 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr) {
                         .await;
                 break 'connection;
             };
+
+            if length > MAX_BODY_LEN {
+                let _ = create_and_send_response(
+                    &mut stream,
+                    HttpStatusCode::ContentTooLarge,
+                    None,
+                    false,
+                )
+                .await;
+                break 'connection;
+            }
             match read_body(&mut stream, length).await {
                 Ok(body) => body,
                 Err(_) => break 'connection,
