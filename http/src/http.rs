@@ -3,38 +3,38 @@ use std::fmt::{Display, Write};
 use std::str::FromStr;
 
 #[non_exhaustive]
+#[derive(Clone, Copy, Debug)]
+pub enum Error {
+    Malformed,
+    UnsupportedMethod,
+    UnsupportedVersion,
+    UnsupportedStatusCode,
+}
+
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HttpVersion {
-    HTTP09,
     HTTP10,
     HTTP11,
-    HTTP2,
-    HTTP3,
 }
 
 impl Display for HttpVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::HTTP09 => write!(f, "HTTP/0.9"),
             Self::HTTP10 => write!(f, "HTTP/1.0"),
             Self::HTTP11 => write!(f, "HTTP/1.1"),
-            Self::HTTP2 => write!(f, "HTTP/2"),
-            Self::HTTP3 => write!(f, "HTTP/3"),
         }
     }
 }
 
 impl TryFrom<&str> for HttpVersion {
-    type Error = ();
+    type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
-            "HTTP/0.9" => Ok(Self::HTTP09),
             "HTTP/1.0" => Ok(Self::HTTP10),
             "HTTP/1.1" => Ok(Self::HTTP11),
-            "HTTP/2" => Ok(Self::HTTP2),
-            "HTTP/3" => Ok(Self::HTTP3),
-            _ => Err(()),
+            _ => Err(Error::UnsupportedVersion),
         }
     }
 }
@@ -42,98 +42,26 @@ impl TryFrom<&str> for HttpVersion {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HttpStatusCode {
-    Continue,
-    SwitchingProtocols,
     Ok,
-    Created,
-    Accepted,
-    NonAuthoritativeInformation,
-    NoContent,
-    ResetContent,
-    PartialContent,
-    MultipleChoices,
-    MovedPermanently,
-    Found,
-    SeeOther,
     NotModified,
-    UseProxy,
-    TemporaryRedirect,
-    PermanentRedirect,
     BadRequest,
-    Unauthorized,
-    PaymentRequired,
-    Forbidden,
     NotFound,
-    MethodNotAllowed,
-    NotAcceptable,
-    ProxyAuthenticationRequired,
     RequestTimeout,
-    Conflict,
-    Gone,
-    LengthRequired,
-    PreconditionFailed,
-    ContentToolarge,
-    URITooLong,
-    UnsupportedMediaType,
-    RangeNotSatisfiable,
-    ExpectationFailed,
-    MisdirectedRequest,
-    UnprocessableContent,
-    UpgradeRequired,
     InternalServorError,
     NotImplemented,
-    BadGateway,
-    ServiceUnavailable,
-    GatewayTimeout,
     HTTPVersionNotSupported,
 }
 
 impl Display for HttpStatusCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Continue => write!(f, "Continue"),
-            Self::SwitchingProtocols => write!(f, "Switching Protocols"),
             Self::Ok => write!(f, "OK"),
-            Self::Created => write!(f, "Created"),
-            Self::Accepted => write!(f, "Accepted"),
-            Self::NonAuthoritativeInformation => write!(f, "Non-Authoritative Information"),
-            Self::NoContent => write!(f, "No Content"),
-            Self::ResetContent => write!(f, "Reset Content"),
-            Self::PartialContent => write!(f, "Partial Content"),
-            Self::MultipleChoices => write!(f, "Multiple Choices"),
-            Self::MovedPermanently => write!(f, "Moved Permanently"),
-            Self::Found => write!(f, "Found"),
-            Self::SeeOther => write!(f, "See Other"),
             Self::NotModified => write!(f, "Not Modified"),
-            Self::UseProxy => write!(f, "Use Proxy"),
-            Self::TemporaryRedirect => write!(f, "Temporary Redirect"),
-            Self::PermanentRedirect => write!(f, "Permanent Redirect"),
             Self::BadRequest => write!(f, "Bad Request"),
-            Self::Unauthorized => write!(f, "Unauthorized"),
-            Self::PaymentRequired => write!(f, "Payment Required"),
-            Self::Forbidden => write!(f, "Forbidden"),
             Self::NotFound => write!(f, "Not Found"),
-            Self::MethodNotAllowed => write!(f, "Method Not Allowed"),
-            Self::NotAcceptable => write!(f, "Not Acceptable"),
-            Self::ProxyAuthenticationRequired => write!(f, "Proxy Authentication Required"),
             Self::RequestTimeout => write!(f, "Request Timeout"),
-            Self::Conflict => write!(f, "Conflict"),
-            Self::Gone => write!(f, "Gone"),
-            Self::LengthRequired => write!(f, "Length Required"),
-            Self::PreconditionFailed => write!(f, "Precondition Failed"),
-            Self::ContentToolarge => write!(f, "Content Too Large"),
-            Self::URITooLong => write!(f, "URI Too Long"),
-            Self::UnsupportedMediaType => write!(f, "Unsupported Media Type"),
-            Self::RangeNotSatisfiable => write!(f, "RangeNotSatisfiable"),
-            Self::ExpectationFailed => write!(f, "Expectation Failed"),
-            Self::MisdirectedRequest => write!(f, "Misdirected Request"),
-            Self::UnprocessableContent => write!(f, "Unprocessable Content"),
-            Self::UpgradeRequired => write!(f, "Upgrade Required"),
             Self::InternalServorError => write!(f, "Internal Servor Error"),
             Self::NotImplemented => write!(f, "NotImplemented"),
-            Self::BadGateway => write!(f, "Bad Gateway"),
-            Self::ServiceUnavailable => write!(f, "Service Unavailable"),
-            Self::GatewayTimeout => write!(f, "Gateway Timeout"),
             Self::HTTPVersionNotSupported => write!(f, "HTTP Version Not Supported"),
         }
     }
@@ -142,63 +70,32 @@ impl Display for HttpStatusCode {
 impl From<HttpStatusCode> for u16 {
     fn from(status_code: HttpStatusCode) -> Self {
         match status_code {
-            HttpStatusCode::Continue => 100,
-            HttpStatusCode::SwitchingProtocols => 101,
             HttpStatusCode::Ok => 200,
-            HttpStatusCode::Created => 201,
-            HttpStatusCode::Accepted => 202,
-            HttpStatusCode::NonAuthoritativeInformation => 203,
-            HttpStatusCode::NoContent => 204,
-            HttpStatusCode::ResetContent => 205,
-            HttpStatusCode::PartialContent => 206,
-            HttpStatusCode::MultipleChoices => 300,
-            HttpStatusCode::MovedPermanently => 301,
-            HttpStatusCode::Found => 302,
-            HttpStatusCode::SeeOther => 303,
             HttpStatusCode::NotModified => 304,
-            HttpStatusCode::UseProxy => 305,
-            HttpStatusCode::TemporaryRedirect => 307,
-            HttpStatusCode::PermanentRedirect => 308,
             HttpStatusCode::BadRequest => 400,
-            HttpStatusCode::Unauthorized => 401,
-            HttpStatusCode::PaymentRequired => 402,
-            HttpStatusCode::Forbidden => 403,
             HttpStatusCode::NotFound => 404,
-            HttpStatusCode::MethodNotAllowed => 405,
-            HttpStatusCode::NotAcceptable => 406,
-            HttpStatusCode::ProxyAuthenticationRequired => 407,
             HttpStatusCode::RequestTimeout => 408,
-            HttpStatusCode::Conflict => 409,
-            HttpStatusCode::Gone => 410,
-            HttpStatusCode::LengthRequired => 411,
-            HttpStatusCode::PreconditionFailed => 412,
-            HttpStatusCode::ContentToolarge => 413,
-            HttpStatusCode::URITooLong => 414,
-            HttpStatusCode::UnsupportedMediaType => 415,
-            HttpStatusCode::RangeNotSatisfiable => 416,
-            HttpStatusCode::ExpectationFailed => 417,
-            HttpStatusCode::MisdirectedRequest => 421,
-            HttpStatusCode::UnprocessableContent => 422,
-            HttpStatusCode::UpgradeRequired => 426,
             HttpStatusCode::InternalServorError => 500,
             HttpStatusCode::NotImplemented => 501,
-            HttpStatusCode::BadGateway => 502,
-            HttpStatusCode::ServiceUnavailable => 503,
-            HttpStatusCode::GatewayTimeout => 504,
             HttpStatusCode::HTTPVersionNotSupported => 505,
         }
     }
 }
 
 impl TryFrom<u16> for HttpStatusCode {
-    type Error = ();
+    type Error = Error;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             200 => Ok(Self::Ok),
+            204 => Ok(Self::NotModified),
+            400 => Ok(Self::BadRequest),
             404 => Ok(Self::NotFound),
-            /* Implement more as needed. */
-            _ => Err(()),
+            408 => Ok(Self::RequestTimeout),
+            500 => Ok(Self::InternalServorError),
+            501 => Ok(Self::NotImplemented),
+            505 => Ok(Self::HTTPVersionNotSupported),
+            _ => Err(Error::UnsupportedStatusCode),
         }
     }
 }
@@ -208,11 +105,6 @@ pub enum HttpMethod {
     Get,
     Head,
     Post,
-    Put,
-    Delete,
-    Connect,
-    Options,
-    Trace,
 }
 
 impl Display for HttpMethod {
@@ -221,33 +113,24 @@ impl Display for HttpMethod {
             Self::Get => write!(f, "GET"),
             Self::Head => write!(f, "HEAD"),
             Self::Post => write!(f, "POST"),
-            Self::Put => write!(f, "PUT"),
-            Self::Delete => write!(f, "DELETE"),
-            Self::Connect => write!(f, "CONNECT"),
-            Self::Options => write!(f, "OPTIONS"),
-            Self::Trace => write!(f, "TRACE"),
         }
     }
 }
 
 impl TryFrom<&str> for HttpMethod {
-    type Error = ();
+    type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
             "GET" => Ok(Self::Get),
             "HEAD" => Ok(Self::Head),
             "POST" => Ok(Self::Post),
-            "PUT" => Ok(Self::Put),
-            "DELETE" => Ok(Self::Delete),
-            "CONNECT" => Ok(Self::Connect),
-            "OPTIONS" => Ok(Self::Options),
-            "TRACE" => Ok(Self::Trace),
-            _ => Err(()),
+            _ => Err(Error::UnsupportedMethod),
         }
     }
 }
 
+#[derive(Debug)]
 pub enum HttpStartLine {
     Response(HttpStatusLine),
     Request(HttpRequestLine),
@@ -262,9 +145,10 @@ impl Display for HttpStartLine {
     }
 }
 
+#[derive(Debug)]
 pub struct HttpStatusLine {
-    http_version: HttpVersion,
-    status_code: HttpStatusCode,
+    pub http_version: HttpVersion,
+    pub status_code: HttpStatusCode,
 }
 
 impl Display for HttpStatusLine {
@@ -280,17 +164,17 @@ impl Display for HttpStatusLine {
 }
 
 impl FromStr for HttpStatusLine {
-    type Err = ();
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split(' ');
 
-        let http_version: HttpVersion = tokens.next().ok_or(())?.try_into()?;
+        let http_version: HttpVersion = tokens.next().ok_or(Error::Malformed)?.try_into()?;
         let status_code: HttpStatusCode = tokens
             .next()
-            .ok_or(())?
+            .ok_or(Error::Malformed)?
             .parse::<u16>()
-            .map_err(|_| ())?
+            .map_err(|_| Error::Malformed)?
             .try_into()?;
 
         /* Reason phrase is optional, and we don't really care about it,
@@ -298,7 +182,7 @@ impl FromStr for HttpStatusLine {
          * this token must exist even if it's empty. Otherwise
          * the response is malformed.
          */
-        let _reason_phrase = tokens.next().ok_or(())?;
+        let _reason_phrase = tokens.next().ok_or(Error::Malformed)?;
 
         // If we still have remaining tokens the response is malformed
         if tokens.next().is_none() {
@@ -307,15 +191,16 @@ impl FromStr for HttpStatusLine {
                 status_code,
             })
         } else {
-            Err(())
+            Err(Error::Malformed)
         }
     }
 }
 
+#[derive(Debug)]
 pub struct HttpRequestLine {
-    method: HttpMethod,
-    target: String,
-    http_version: HttpVersion,
+    pub method: HttpMethod,
+    pub target: String,
+    pub http_version: HttpVersion,
 }
 
 impl Display for HttpRequestLine {
@@ -325,14 +210,14 @@ impl Display for HttpRequestLine {
 }
 
 impl FromStr for HttpRequestLine {
-    type Err = ();
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split(' ');
 
-        let method: HttpMethod = tokens.next().ok_or(())?.try_into()?;
-        let target = String::from(tokens.next().ok_or(())?);
-        let http_version: HttpVersion = tokens.next().ok_or(())?.try_into()?;
+        let method: HttpMethod = tokens.next().ok_or(Error::Malformed)?.try_into()?;
+        let target = String::from(tokens.next().ok_or(Error::Malformed)?);
+        let http_version: HttpVersion = tokens.next().ok_or(Error::Malformed)?.try_into()?;
 
         // If we still have remaining tokens the request is malformed
         if tokens.next().is_none() {
@@ -342,14 +227,14 @@ impl FromStr for HttpRequestLine {
                 http_version,
             })
         } else {
-            Err(())
+            Err(Error::Malformed)
         }
     }
 }
 
 pub struct HttpField {
-    name: String,
-    value: String,
+    pub name: String,
+    pub value: String,
 }
 
 impl Display for HttpField {
@@ -359,13 +244,13 @@ impl Display for HttpField {
 }
 
 impl FromStr for HttpField {
-    type Err = ();
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (name, value) = s.split_once(':').ok_or(())?;
+        let (name, value) = s.split_once(':').ok_or(Error::Malformed)?;
 
         if name.chars().any(char::is_whitespace) {
-            Err(())
+            Err(Error::Malformed)
         } else {
             Ok(HttpField {
                 name: String::from(name),
@@ -375,9 +260,50 @@ impl FromStr for HttpField {
     }
 }
 
+#[derive(Debug)]
 pub struct HttpHeader {
-    start_line: HttpStartLine,
-    field_lines: HashMap<String, String>,
+    pub start_line: HttpStartLine,
+    pub field_lines: HashMap<String, String>,
+}
+
+impl HttpHeader {
+    /// Returns true if header requests a persistent connection, false otherwise.
+    pub fn is_persistent(&self) -> bool {
+        let version = if let HttpStartLine::Request(req) = &self.start_line {
+            req.http_version
+        } else {
+            return false;
+        };
+
+        match version {
+            // HTTP/1.1 is persistent by default
+            HttpVersion::HTTP11 => self
+                .field_lines
+                .get("connection")
+                .map_or(true, |v| v == "keep-alive"),
+
+            // HTTP/1.0 is NOT persistent by default
+            HttpVersion::HTTP10 => self
+                .field_lines
+                .get("connection")
+                .map_or(false, |v| v == "keep-alive"),
+        }
+    }
+
+    /// Returns true is header represents a request, false otherwise.
+    pub fn is_request(&self) -> bool {
+        matches!(&self.start_line, HttpStartLine::Request(_))
+    }
+
+    /// Returns a reference to the request line if request header,
+    /// panics otherwise.
+    pub fn request_line(&self) -> &HttpRequestLine {
+        if let HttpStartLine::Request(request_line) = &self.start_line {
+            request_line
+        } else {
+            panic!("Header is not an HTTP request.");
+        }
+    }
 }
 
 impl Display for HttpHeader {
@@ -396,7 +322,7 @@ impl Display for HttpHeader {
 }
 
 impl FromStr for HttpHeader {
-    type Err = ();
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         /* Optional whitespace around field values might cause empty lines,
@@ -408,7 +334,7 @@ impl FromStr for HttpHeader {
          * as responses always start with HTTP version string (which of course
          * starts with "HTTP").
          */
-        let start_line = lines.next().ok_or(())?;
+        let start_line = lines.next().ok_or(Error::Malformed)?;
 
         let start_line = if start_line.starts_with("HTTP") {
             HttpStartLine::Response(start_line.parse()?)
@@ -422,7 +348,7 @@ impl FromStr for HttpHeader {
                 line.parse::<HttpField>()
                     .map(|field| (field.name.to_lowercase(), field.value))
             })
-            .collect::<Result<HashMap<String, String>, ()>>()?;
+            .collect::<Result<HashMap<String, String>, Error>>()?;
 
         Ok(HttpHeader {
             start_line,
@@ -432,8 +358,33 @@ impl FromStr for HttpHeader {
 }
 
 pub struct HttpMessage {
-    header: HttpHeader,
-    body: Vec<u8>,
+    pub header: HttpHeader,
+    pub body: Vec<u8>,
+}
+
+impl HttpMessage {
+    pub fn new_response(
+        http_version: HttpVersion,
+        status_code: HttpStatusCode,
+        field_lines: &[(&str, &str)],
+        body: Vec<u8>,
+    ) -> Self {
+        let start_line = HttpStartLine::Response(HttpStatusLine {
+            http_version,
+            status_code,
+        });
+
+        let field_lines = field_lines
+            .iter()
+            .copied()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let header = HttpHeader {
+            start_line,
+            field_lines,
+        };
+        Self { header, body }
+    }
 }
 
 impl From<HttpMessage> for Vec<u8> {
