@@ -1,5 +1,7 @@
 use crate::http::*;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
@@ -156,10 +158,17 @@ async fn read_body(stream: &mut BufReader<TcpStream>, length: usize) -> Result<V
 }
 
 /// Handles an incoming connection from a client.
-pub async fn handle_connection(stream: TcpStream, addr: SocketAddr) {
-    println!("Handling connection from {addr}...");
-
+pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Arc<Semaphore>) {
     let mut stream = BufReader::new(stream);
+    if conn_sem.try_acquire().is_err() {
+        println!("Server overloaded, ignoring connection.");
+        let _ =
+            create_and_send_response(&mut stream, HttpStatusCode::ServiceUnavailable, None, false)
+                .await;
+        return;
+    }
+
+    println!("Handling connection from {addr}...");
 
     // Loop until timeout or EOF (unless keep-alive is disabled)
     'connection: loop {

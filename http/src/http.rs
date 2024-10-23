@@ -50,6 +50,7 @@ pub enum HttpStatusCode {
     ContentTooLarge,
     InternalServorError,
     NotImplemented,
+    ServiceUnavailable,
     HTTPVersionNotSupported,
 }
 
@@ -63,7 +64,8 @@ impl Display for HttpStatusCode {
             Self::RequestTimeout => write!(f, "Request Timeout"),
             Self::ContentTooLarge => write!(f, "Content Too Large"),
             Self::InternalServorError => write!(f, "Internal Servor Error"),
-            Self::NotImplemented => write!(f, "NotImplemented"),
+            Self::NotImplemented => write!(f, "Not Implemented"),
+            Self::ServiceUnavailable => write!(f, "Service Unavailable"),
             Self::HTTPVersionNotSupported => write!(f, "HTTP Version Not Supported"),
         }
     }
@@ -80,6 +82,7 @@ impl From<HttpStatusCode> for u16 {
             HttpStatusCode::ContentTooLarge => 413,
             HttpStatusCode::InternalServorError => 500,
             HttpStatusCode::NotImplemented => 501,
+            HttpStatusCode::ServiceUnavailable => 503,
             HttpStatusCode::HTTPVersionNotSupported => 505,
         }
     }
