@@ -1,8 +1,10 @@
 use crate::http::*;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::{
+    fs::File,
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
     time::{timeout, Duration},
@@ -10,6 +12,8 @@ use tokio::{
 
 const MAX_HEADER_LEN: usize = 8 * 1024;
 const MAX_BODY_LEN: usize = 1024 * 1024;
+
+const SERVER_ROOT: &str = "/home/kurtjd/webserver";
 
 /// Creates a response with server-specific fields.
 fn create_response(
@@ -19,11 +23,13 @@ fn create_response(
 ) -> HttpMessage {
     let body = body.unwrap_or_default();
 
+    // TODO: Make these more dynamic and dependent on particular request
     let field_lines = [
         ("Server", "Helios/13.37"),
         ("Content-Length", &body.len().to_string()),
         ("Date", "Sat, 20 Oct 2024 13:37:00 GMT"),
         ("Connection", "keep-alive"),
+        ("Content-Type", "text/html"),
     ];
     HttpMessage::new_response(
         HttpVersion::HTTP11,
@@ -55,14 +61,42 @@ async fn create_and_send_response(
 }
 
 /// Handle GET request.
-async fn handle_get(_request: &HttpMessage) -> HttpMessage {
-    // Canonicalize target (e.g. %20 -> space)
-    // Normalize target to prevent directory traversal attack
-    // Check if file exists, if not, return 404
-    // Check if PHP file, if so, pass file to PHP interpreter
-    // Load file into buffer
-    // Send 200 OK with body
-    let body = b"Hack the planet!".to_vec();
+async fn handle_get(request: &HttpMessage) -> HttpMessage {
+    // Check if the requested target is actually valid
+    let Ok(target) = request.header.request_line().target.parse::<Target>() else {
+        return create_response(HttpStatusCode::BadRequest, None, false);
+    };
+
+    // TODO: Convert empty pathbuf to index.html
+    let path = PathBuf::from(format!("{SERVER_ROOT}/{}", target.path));
+
+    // Then check if it exists on the server
+    if !path.exists() {
+        let body = b"404 Not Found".to_vec();
+        return create_response(HttpStatusCode::NotFound, Some(body), true);
+    }
+
+    // TODO: If it's a PHP file, first call the PHP interpreter
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map_or(false, |ext| ext == "php")
+    {
+        // Pass to PHP interpreter with queries?
+        println!("Queries: {:?}", target.queries);
+    }
+
+    // Try to open the requested file
+    let Ok(mut file) = File::open(path).await else {
+        return create_response(HttpStatusCode::InternalServorError, None, false);
+    };
+
+    // And finally try to read it
+    let mut body = Vec::new();
+    if file.read_to_end(&mut body).await.is_err() {
+        return create_response(HttpStatusCode::InternalServorError, None, false);
+    }
+
     create_response(HttpStatusCode::Ok, Some(body), true)
 }
 
@@ -174,6 +208,13 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
     'connection: loop {
         // Read and parse header
         let Ok(header) = read_header(&mut stream).await else {
+            let _ = create_and_send_response(
+                &mut stream,
+                HttpStatusCode::InternalServorError,
+                None,
+                false,
+            )
+            .await;
             break 'connection;
         };
 

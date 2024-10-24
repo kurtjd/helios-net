@@ -1,6 +1,8 @@
+use percent_encoding::percent_decode_str;
 use std::collections::HashMap;
 use std::fmt::{Display, Write};
 use std::str::FromStr;
+use url::{form_urlencoded::parse, Url};
 
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
@@ -403,6 +405,39 @@ impl From<HttpMessage> for Vec<u8> {
             .into_iter()
             .chain(message.body)
             .collect()
+    }
+}
+
+pub struct Target {
+    pub path: String,
+    pub queries: Vec<(String, String)>,
+}
+
+impl FromStr for Target {
+    type Err = ();
+
+    // TODO: Write unit tests
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        /* We don't really care about the URL, but the URL crate wants
+         * a full, valid URL for us to use it's useful bits.
+         * Hence why we append the target to something arbitrary like
+         * http://localhost
+         */
+        let url = format!("http://localhost{s}");
+        let url = Url::parse(&url).map_err(|_| ())?;
+
+        let path = percent_decode_str(url.path())
+            .decode_utf8()
+            .map_err(|_| ())?
+            .into_owned()
+            .trim_start_matches('/')
+            .to_string();
+
+        let queries: Vec<_> = parse(url.query().unwrap_or("").as_bytes())
+            .into_owned()
+            .collect();
+
+        Ok(Self { path, queries })
     }
 }
 
