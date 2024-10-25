@@ -1,6 +1,6 @@
 use crate::http::*;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::{
@@ -12,8 +12,37 @@ use tokio::{
 
 const MAX_HEADER_LEN: usize = 8 * 1024;
 const MAX_BODY_LEN: usize = 1024 * 1024;
-
 const SERVER_ROOT: &str = "/home/kurtjd/webserver";
+
+/// Process a PHP file and return the result.
+async fn handle_php(path: &Path, queries: &[(String, String)]) -> HttpMessage {
+    /* The URL crate already gives us query string in this form, but
+     * unfortunately does not do percent decoding. Thus we use a separate crate
+     * for that which splits it into a tuple of name/value pairs,
+     * which we then reassemble back into a query string.
+     */
+    let queries = queries
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<String>>()
+        .join("&");
+
+    let Ok(result) = tokio::process::Command::new("php-cgi")
+        .arg("-q")
+        .arg(path.to_str().unwrap())
+        .arg(queries)
+        .output()
+        .await
+    else {
+        return create_response(HttpStatusCode::InternalServorError, None, false);
+    };
+
+    if result.status.success() {
+        create_response(HttpStatusCode::Ok, Some(result.stdout), true)
+    } else {
+        create_response(HttpStatusCode::InternalServorError, None, false)
+    }
+}
 
 /// Creates a response with server-specific fields.
 fn create_response(
@@ -67,8 +96,15 @@ async fn handle_get(request: &HttpMessage) -> HttpMessage {
         return create_response(HttpStatusCode::BadRequest, None, false);
     };
 
-    // TODO: Convert empty pathbuf to index.html
-    let path = PathBuf::from(format!("{SERVER_ROOT}/{}", target.path));
+    // Use index.html if request target is empty
+    let path = PathBuf::from(format!(
+        "{SERVER_ROOT}/{}",
+        if target.path.is_empty() {
+            "index.html"
+        } else {
+            &target.path
+        },
+    ));
 
     // Then check if it exists on the server
     if !path.exists() {
@@ -76,14 +112,13 @@ async fn handle_get(request: &HttpMessage) -> HttpMessage {
         return create_response(HttpStatusCode::NotFound, Some(body), true);
     }
 
-    // TODO: If it's a PHP file, first call the PHP interpreter
+    // Handle PHP files
     if path
         .extension()
         .and_then(|ext| ext.to_str())
         .map_or(false, |ext| ext == "php")
     {
-        // Pass to PHP interpreter with queries?
-        println!("Queries: {:?}", target.queries);
+        return handle_php(&path, &target.queries).await;
     }
 
     // Try to open the requested file
@@ -123,6 +158,7 @@ async fn process_request(request: &HttpMessage) -> HttpMessage {
     }
 }
 
+/// Read in an HTTP header.
 async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
     let mut header = String::new();
     let read_timeout = Duration::from_secs(5);
@@ -165,6 +201,7 @@ async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
     Ok(header)
 }
 
+/// Read in an HTTP body.
 async fn read_body(stream: &mut BufReader<TcpStream>, length: usize) -> Result<Vec<u8>, ()> {
     let read_timeout = Duration::from_secs(5);
     let mut body = vec![0; length];
