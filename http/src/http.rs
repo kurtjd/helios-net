@@ -2,7 +2,7 @@ use percent_encoding::percent_decode_str;
 use std::collections::HashMap;
 use std::fmt::{Display, Write};
 use std::str::FromStr;
-use url::{form_urlencoded::parse, Url};
+use url::Url;
 
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
@@ -368,7 +368,7 @@ impl FromStr for HttpHeader {
 
 pub struct HttpMessage {
     pub header: HttpHeader,
-    pub body: Vec<u8>,
+    pub body: Option<Vec<u8>>,
 }
 
 impl HttpMessage {
@@ -376,7 +376,7 @@ impl HttpMessage {
         http_version: HttpVersion,
         status_code: HttpStatusCode,
         field_lines: &[(&str, &str)],
-        body: Vec<u8>,
+        body: Option<Vec<u8>>,
     ) -> Self {
         let start_line = HttpStartLine::Response(HttpStatusLine {
             http_version,
@@ -403,14 +403,14 @@ impl From<HttpMessage> for Vec<u8> {
             .to_string()
             .into_bytes()
             .into_iter()
-            .chain(message.body)
+            .chain(message.body.unwrap_or_default())
             .collect()
     }
 }
 
 pub struct Target {
     pub path: String,
-    pub queries: Vec<(String, String)>,
+    pub query_str: String,
 }
 
 impl FromStr for Target {
@@ -433,11 +433,9 @@ impl FromStr for Target {
             .trim_start_matches('/')
             .to_string();
 
-        let queries: Vec<_> = parse(url.query().unwrap_or("").as_bytes())
-            .into_owned()
-            .collect();
+        let query_str = url.query().unwrap_or("").to_string();
 
-        Ok(Self { path, queries })
+        Ok(Self { path, query_str })
     }
 }
 

@@ -1,10 +1,9 @@
 use crate::http::*;
+use crate::response::*;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::{
-    fs::File,
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
     time::{timeout, Duration},
@@ -12,61 +11,8 @@ use tokio::{
 
 const MAX_HEADER_LEN: usize = 8 * 1024;
 const MAX_BODY_LEN: usize = 1024 * 1024;
-const SERVER_ROOT: &str = "/home/kurtjd/webserver";
 
-/// Process a PHP file and return the result.
-async fn handle_php(path: &Path, queries: &[(String, String)]) -> HttpMessage {
-    /* The URL crate already gives us query string in this form, but
-     * unfortunately does not do percent decoding. Thus we use a separate crate
-     * for that which splits it into a tuple of name/value pairs,
-     * which we then reassemble back into a query string.
-     */
-    let queries = queries
-        .iter()
-        .map(|(name, value)| format!("{name}={value}"))
-        .collect::<Vec<String>>()
-        .join("&");
-
-    let Ok(result) = tokio::process::Command::new("php-cgi")
-        .arg("-q")
-        .arg(path.to_str().unwrap())
-        .arg(queries)
-        .output()
-        .await
-    else {
-        return create_response(HttpStatusCode::InternalServorError, None, false);
-    };
-
-    if result.status.success() {
-        create_response(HttpStatusCode::Ok, Some(result.stdout), true)
-    } else {
-        create_response(HttpStatusCode::InternalServorError, None, false)
-    }
-}
-
-/// Creates a response with server-specific fields.
-fn create_response(
-    status_code: HttpStatusCode,
-    body: Option<Vec<u8>>,
-    send_body: bool,
-) -> HttpMessage {
-    let body = body.unwrap_or_default();
-
-    // TODO: Make these more dynamic and dependent on particular request
-    let field_lines = [
-        ("Server", "Helios/13.37"),
-        ("Content-Length", &body.len().to_string()),
-        ("Date", "Sat, 20 Oct 2024 13:37:00 GMT"),
-        ("Connection", "keep-alive"),
-        ("Content-Type", "text/html"),
-    ];
-    HttpMessage::new_response(
-        HttpVersion::HTTP11,
-        status_code,
-        &field_lines,
-        send_body.then_some(body).unwrap_or_default(),
-    )
-}
+// TODO: Set up default pages for error codes
 
 /// Sends a response message to a client.
 async fn send_response(
@@ -79,6 +25,7 @@ async fn send_response(
     })
 }
 
+/// Both creates an HTTP response and sends it over connection.
 async fn create_and_send_response(
     stream: &mut BufReader<TcpStream>,
     status_code: HttpStatusCode,
@@ -87,75 +34,6 @@ async fn create_and_send_response(
 ) -> std::io::Result<()> {
     let response = create_response(status_code, body, send_body);
     send_response(stream, response).await
-}
-
-/// Handle GET request.
-async fn handle_get(request: &HttpMessage) -> HttpMessage {
-    // Check if the requested target is actually valid
-    let Ok(target) = request.header.request_line().target.parse::<Target>() else {
-        return create_response(HttpStatusCode::BadRequest, None, false);
-    };
-
-    // Use index.html if request target is empty
-    let path = PathBuf::from(format!(
-        "{SERVER_ROOT}/{}",
-        if target.path.is_empty() {
-            "index.html"
-        } else {
-            &target.path
-        },
-    ));
-
-    // Then check if it exists on the server
-    if !path.exists() {
-        let body = b"404 Not Found".to_vec();
-        return create_response(HttpStatusCode::NotFound, Some(body), true);
-    }
-
-    // Handle PHP files
-    if path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map_or(false, |ext| ext == "php")
-    {
-        return handle_php(&path, &target.queries).await;
-    }
-
-    // Try to open the requested file
-    let Ok(mut file) = File::open(path).await else {
-        return create_response(HttpStatusCode::InternalServorError, None, false);
-    };
-
-    // And finally try to read it
-    let mut body = Vec::new();
-    if file.read_to_end(&mut body).await.is_err() {
-        return create_response(HttpStatusCode::InternalServorError, None, false);
-    }
-
-    create_response(HttpStatusCode::Ok, Some(body), true)
-}
-
-/// Handle HEAD request.
-async fn handle_head(_request: &HttpMessage) -> HttpMessage {
-    // Same as GET execpt don't send response with body
-    let body = b"Hack the planet!".to_vec();
-    create_response(HttpStatusCode::Ok, Some(body), false)
-}
-
-/// Handle POST request.
-async fn handle_post(_request: &HttpMessage) -> HttpMessage {
-    // Same as GET except pass request body to PHP interpreter?
-    let body = b"Hack the planet!".to_vec();
-    create_response(HttpStatusCode::Ok, Some(body), true)
-}
-
-/// Processes an HTTP request if able and returns a response message.
-async fn process_request(request: &HttpMessage) -> HttpMessage {
-    match request.header.request_line().method {
-        HttpMethod::Get => handle_get(request).await,
-        HttpMethod::Head => handle_head(request).await,
-        HttpMethod::Post => handle_post(request).await,
-    }
 }
 
 /// Read in an HTTP header.
@@ -297,11 +175,11 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
                 break 'connection;
             }
             match read_body(&mut stream, length).await {
-                Ok(body) => body,
+                Ok(body) => Some(body),
                 Err(_) => break 'connection,
             }
         } else {
-            Vec::new()
+            None
         };
 
         // Perform what is asked from request

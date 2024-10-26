@@ -1,5 +1,7 @@
+mod cgi;
 mod connection;
 mod http;
+mod response;
 
 use connection::handle_connection;
 use std::sync::Arc;
