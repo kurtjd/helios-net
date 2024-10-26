@@ -97,14 +97,17 @@ pub fn create_response(
     send_body: bool,
 ) -> HttpMessage {
     let body = body.unwrap_or_default();
+    let date = chrono::Utc::now()
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
 
-    // TODO: Make these more dynamic and dependent on particular request
     let field_lines = [
         ("Server", "Helios/13.37"),
         ("Content-Length", &body.len().to_string()),
-        ("Date", "Sat, 20 Oct 2024 13:37:00 GMT"),
+        ("Date", &date),
         ("Connection", "keep-alive"),
     ];
+
     HttpMessage::new_response(
         HttpVersion::HTTP11,
         status_code,

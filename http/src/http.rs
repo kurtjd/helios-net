@@ -45,7 +45,6 @@ impl TryFrom<&str> for HttpVersion {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HttpStatusCode {
     Ok,
-    NotModified,
     BadRequest,
     NotFound,
     RequestTimeout,
@@ -60,7 +59,6 @@ impl Display for HttpStatusCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ok => write!(f, "OK"),
-            Self::NotModified => write!(f, "Not Modified"),
             Self::BadRequest => write!(f, "Bad Request"),
             Self::NotFound => write!(f, "Not Found"),
             Self::RequestTimeout => write!(f, "Request Timeout"),
@@ -77,7 +75,6 @@ impl From<HttpStatusCode> for u16 {
     fn from(status_code: HttpStatusCode) -> Self {
         match status_code {
             HttpStatusCode::Ok => 200,
-            HttpStatusCode::NotModified => 304,
             HttpStatusCode::BadRequest => 400,
             HttpStatusCode::NotFound => 404,
             HttpStatusCode::RequestTimeout => 408,
@@ -96,7 +93,6 @@ impl TryFrom<u16> for HttpStatusCode {
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             200 => Ok(Self::Ok),
-            204 => Ok(Self::NotModified),
             400 => Ok(Self::BadRequest),
             404 => Ok(Self::NotFound),
             408 => Ok(Self::RequestTimeout),

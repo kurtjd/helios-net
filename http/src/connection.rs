@@ -128,8 +128,8 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
             }
         };
 
+        // Client sent us a response? Ignore.
         if !header.is_request() {
-            println!("Client sent response? Nonsense, closing connection...");
             let _ = create_and_send_err_response(&mut stream, HttpStatusCode::BadRequest).await;
             break 'connection;
         };
