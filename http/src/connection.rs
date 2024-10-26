@@ -25,14 +25,12 @@ async fn send_response(
     })
 }
 
-/// Both creates an HTTP response and sends it over connection.
-async fn create_and_send_response(
+/// Both creates an HTTP error response and sends it over connection.
+async fn create_and_send_err_response(
     stream: &mut BufReader<TcpStream>,
     status_code: HttpStatusCode,
-    body: Option<Vec<u8>>,
-    send_body: bool,
 ) -> std::io::Result<()> {
-    let response = create_response(status_code, body, send_body);
+    let response = create_error_response(status_code).await;
     send_response(stream, response).await
 }
 
@@ -50,28 +48,20 @@ async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
             }
             Ok(Err(e)) => {
                 eprintln!("Error reading from stream: {e}");
-                let _ = create_and_send_response(
-                    stream,
-                    HttpStatusCode::InternalServorError,
-                    None,
-                    false,
-                )
-                .await;
+                let _ =
+                    create_and_send_err_response(stream, HttpStatusCode::InternalServorError).await;
                 return Err(());
             }
             Err(_) => {
                 println!("Timeout, closing connection...");
-                let _ =
-                    create_and_send_response(stream, HttpStatusCode::RequestTimeout, None, false)
-                        .await;
+                let _ = create_and_send_err_response(stream, HttpStatusCode::RequestTimeout).await;
                 return Err(());
             }
             _ => (),
         }
 
         if header.len() > MAX_HEADER_LEN {
-            let _ = create_and_send_response(stream, HttpStatusCode::ContentTooLarge, None, false)
-                .await;
+            let _ = create_and_send_err_response(stream, HttpStatusCode::ContentTooLarge).await;
             return Err(());
         }
     }
@@ -91,15 +81,12 @@ async fn read_body(stream: &mut BufReader<TcpStream>, length: usize) -> Result<V
         }
         Ok(Err(e)) => {
             eprintln!("Error reading from stream: {e}");
-            let _ =
-                create_and_send_response(stream, HttpStatusCode::InternalServorError, None, false)
-                    .await;
+            let _ = create_and_send_err_response(stream, HttpStatusCode::InternalServorError).await;
             Err(())
         }
         Err(_) => {
             println!("Timeout, closing connection...");
-            let _ =
-                create_and_send_response(stream, HttpStatusCode::RequestTimeout, None, false).await;
+            let _ = create_and_send_err_response(stream, HttpStatusCode::RequestTimeout).await;
             Err(())
         }
         _ => Ok(body),
@@ -111,9 +98,7 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
     let mut stream = BufReader::new(stream);
     if conn_sem.try_acquire().is_err() {
         println!("Server overloaded, ignoring connection.");
-        let _ =
-            create_and_send_response(&mut stream, HttpStatusCode::ServiceUnavailable, None, false)
-                .await;
+        let _ = create_and_send_err_response(&mut stream, HttpStatusCode::ServiceUnavailable).await;
         return;
     }
 
@@ -123,13 +108,8 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
     'connection: loop {
         // Read and parse header
         let Ok(header) = read_header(&mut stream).await else {
-            let _ = create_and_send_response(
-                &mut stream,
-                HttpStatusCode::InternalServorError,
-                None,
-                false,
-            )
-            .await;
+            let _ = create_and_send_err_response(&mut stream, HttpStatusCode::InternalServorError)
+                .await;
             break 'connection;
         };
 
@@ -143,35 +123,27 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
                     _ => HttpStatusCode::BadRequest,
                 };
 
-                let _ = create_and_send_response(&mut stream, status_code, None, false).await;
+                let _ = create_and_send_err_response(&mut stream, status_code).await;
                 break 'connection;
             }
         };
 
         if !header.is_request() {
             println!("Client sent response? Nonsense, closing connection...");
-            let _ = create_and_send_response(&mut stream, HttpStatusCode::BadRequest, None, false)
-                .await;
+            let _ = create_and_send_err_response(&mut stream, HttpStatusCode::BadRequest).await;
             break 'connection;
         };
 
         // If request contains body, read it
         let body = if let Some(length) = header.field_lines.get("content-length") {
             let Ok(length) = length.parse() else {
-                let _ =
-                    create_and_send_response(&mut stream, HttpStatusCode::BadRequest, None, false)
-                        .await;
+                let _ = create_and_send_err_response(&mut stream, HttpStatusCode::BadRequest).await;
                 break 'connection;
             };
 
             if length > MAX_BODY_LEN {
-                let _ = create_and_send_response(
-                    &mut stream,
-                    HttpStatusCode::ContentTooLarge,
-                    None,
-                    false,
-                )
-                .await;
+                let _ = create_and_send_err_response(&mut stream, HttpStatusCode::ContentTooLarge)
+                    .await;
                 break 'connection;
             }
             match read_body(&mut stream, length).await {

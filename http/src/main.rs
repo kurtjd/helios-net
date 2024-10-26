@@ -1,3 +1,9 @@
+/* TODO Overall:
+ * -Add command like arguments and have server options read from config file
+ * -Add HTTPS support
+ * -Add module doc strings
+ * -Add date to response headers
+ */
 mod cgi;
 mod connection;
 mod http;

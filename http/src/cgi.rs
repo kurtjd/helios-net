@@ -57,7 +57,7 @@ pub async fn handle_php(
     let result = cmd.wait_with_output().await.map_err(|_| ())?;
     if result.status.success() {
         let (_header, body) = std::str::from_utf8(&result.stdout)
-            .unwrap()
+            .map_err(|_| ())?
             .split_once("\r\n\r\n")
             .ok_or(())?;
 
