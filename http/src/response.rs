@@ -31,9 +31,10 @@ async fn handle_request(request: &HttpMessage, send_body: bool) -> HttpMessage {
         .and_then(|ext| ext.to_str())
         .map_or(false, |ext| ext == "php")
     {
-        return match handle_php(&path, &target.query_str, &request.body, send_body).await {
-            Ok(msg) => msg,
-            _ => create_response(HttpStatusCode::InternalServorError, None, false),
+        if let Ok(msg) = handle_php(&path, &target.query_str, &request.body, send_body).await {
+            return msg;
+        } else {
+            return create_response(HttpStatusCode::InternalServorError, None, false);
         };
     }
 

@@ -423,7 +423,7 @@ impl FromStr for Target {
          * Hence why we append the target to something arbitrary like
          * http://localhost
          */
-        let url = format!("http://localhost{s}");
+        let url = format!("http://localhost/{}", s.trim_start_matches('/'));
         let url = Url::parse(&url).map_err(|_| ())?;
 
         let path = percent_decode_str(url.path())
@@ -652,5 +652,33 @@ mod tests {
             header.to_string(),
             "GET /index.html HTTP/1.1\r\nconnection: keep-alive\r\nhost: localhost:42\r\n\r\n"
         );*/
+    }
+
+    #[test]
+    fn test_target_from_str() {
+        // Simple test
+        let target: Target = "/index.php".parse().unwrap();
+        assert_eq!(target.path, "index.php");
+        assert_eq!(target.query_str, "");
+
+        // No leading backslash test
+        let target: Target = "index.php".parse().unwrap();
+        assert_eq!(target.path, "index.php");
+        assert_eq!(target.query_str, "");
+
+        // Query string test
+        let target: Target = "/index.php?msg=Hack the planet!&foo=bar".parse().unwrap();
+        assert_eq!(target.path, "index.php");
+        assert_eq!(target.query_str, "msg=Hack%20the%20planet!&foo=bar");
+
+        // Thwart hacker test
+        let target: Target = "../../../secrets.lol".parse().unwrap();
+        assert_eq!(target.path, "secrets.lol");
+        assert_eq!(target.query_str, "");
+
+        // Thwart weird hacker test
+        let target: Target = "/some/folder/../../../secrets.lol".parse().unwrap();
+        assert_eq!(target.path, "secrets.lol");
+        assert_eq!(target.query_str, "");
     }
 }
