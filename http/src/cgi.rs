@@ -26,48 +26,44 @@ pub async fn handle_php(
     query_str: &str,
     post_data: &Option<Vec<u8>>,
     send_body: bool,
-) -> HttpMessage {
-    let cmd = match post_data {
-        Some(data) => {
-            /* We use a blocking process here because unfortunately tokio
-             * does not implement piping stdout to stdin...
-             *
-             * And the whole reason we need this is because this is how
-             * php-cgi receives POST data.
-             */
-            let mut echo = std::process::Command::new("echo")
-                .arg(std::str::from_utf8(data).unwrap())
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-
-            let cmd = php_cgi(HttpMethod::Post, path, query_str)
-                .env("CONTENT_TYPE", "application/x-www-form-urlencoded")
-                .env("CONTENT_LENGTH", data.len().to_string())
-                .stdin(echo.stdout.take().unwrap())
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            cmd
-        }
-        None => php_cgi(HttpMethod::Get, path, query_str)
+) -> Result<HttpMessage, ()> {
+    let cmd = if let Some(data) = post_data {
+        /* We use a blocking process here because unfortunately tokio
+         * does not implement piping stdout to stdin...
+         *
+         * And the whole reason we need this is because this is how
+         * php-cgi receives POST data.
+         */
+        let mut echo = std::process::Command::new("echo")
+            .arg(std::str::from_utf8(data).map_err(|_| ())?)
             .stdout(Stdio::piped())
             .spawn()
-            .unwrap(),
+            .map_err(|_| ())?;
+
+        php_cgi(HttpMethod::Post, path, query_str)
+            .env("CONTENT_TYPE", "application/x-www-form-urlencoded")
+            .env("CONTENT_LENGTH", data.len().to_string())
+            .stdin(echo.stdout.take().ok_or(())?)
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|_| ())?
+    } else {
+        php_cgi(HttpMethod::Get, path, query_str)
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|_| ())?
     };
 
-    let Ok(result) = cmd.wait_with_output().await else {
-        return create_response(HttpStatusCode::InternalServorError, None, false);
-    };
-
+    let result = cmd.wait_with_output().await.map_err(|_| ())?;
     if result.status.success() {
         let (_header, body) = std::str::from_utf8(&result.stdout)
             .unwrap()
             .split_once("\r\n\r\n")
-            .unwrap();
+            .ok_or(())?;
+
         let body = body.as_bytes().to_vec();
-        create_response(HttpStatusCode::Ok, Some(body), send_body)
+        Ok(create_response(HttpStatusCode::Ok, Some(body), send_body))
     } else {
-        create_response(HttpStatusCode::InternalServorError, None, false)
+        Err(())
     }
 }
