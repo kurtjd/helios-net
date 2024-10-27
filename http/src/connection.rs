@@ -6,13 +6,12 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    net::TcpStream,
     time::{timeout, Duration},
 };
 
 /// Sends a response message to a client.
 async fn send_response(
-    stream: &mut BufReader<TcpStream>,
+    stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
     response: HttpMessage,
 ) -> std::io::Result<()> {
     stream.write_all(&Vec::from(response)).await.map_err(|e| {
@@ -24,7 +23,7 @@ async fn send_response(
 /// Both creates an HTTP error response and sends it over connection.
 async fn create_and_send_err_response(
     config: &Config,
-    stream: &mut BufReader<TcpStream>,
+    stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
     status_code: HttpStatusCode,
 ) -> std::io::Result<()> {
     let response = create_error_response(config, status_code).await;
@@ -32,7 +31,10 @@ async fn create_and_send_err_response(
 }
 
 /// Read in an HTTP header.
-async fn read_header(config: &Config, stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
+async fn read_header(
+    config: &Config,
+    stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
+) -> Result<String, ()> {
     let mut header = String::new();
     let read_timeout = Duration::from_secs(5);
 
@@ -76,10 +78,10 @@ async fn read_header(config: &Config, stream: &mut BufReader<TcpStream>) -> Resu
 /// Read in an HTTP body.
 async fn read_body(
     config: &Config,
-    stream: &mut BufReader<TcpStream>,
+    stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
     length: usize,
 ) -> Result<Vec<u8>, ()> {
-    let read_timeout = Duration::from_secs(5);
+    let read_timeout = Duration::from_secs(config.max_timeout);
     let mut body = vec![0; length];
 
     match timeout(read_timeout, stream.read_exact(&mut body)).await {
@@ -107,7 +109,7 @@ async fn read_body(
 /// Handles an incoming connection from a client.
 pub async fn handle_connection(
     config: &Config,
-    stream: TcpStream,
+    stream: impl AsyncWriteExt + AsyncReadExt + Unpin,
     addr: SocketAddr,
     conn_sem: Arc<Semaphore>,
 ) {

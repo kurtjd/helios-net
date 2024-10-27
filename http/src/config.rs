@@ -6,7 +6,7 @@ pub struct Config {
     pub max_connections: usize,
     pub max_header_len: usize,
     pub max_body_len: usize,
-    pub max_timeout: usize,
+    pub max_timeout: u64,
     pub ip: String,
     pub port_http: u16,
     pub port_https: u16,
