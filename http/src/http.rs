@@ -412,12 +412,11 @@ pub struct Target {
 impl FromStr for Target {
     type Err = ();
 
-    // TODO: Write unit tests
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         /* We don't really care about the URL, but the URL crate wants
          * a full, valid URL for us to use it's useful bits.
          * Hence why we append the target to something arbitrary like
-         * http://localhost
+         * http://localhost/
          */
         let url = format!("http://localhost/{}", s.trim_start_matches('/'));
         let url = Url::parse(&url).map_err(|_| ())?;

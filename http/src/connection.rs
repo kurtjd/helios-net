@@ -1,15 +1,20 @@
 use crate::config::Config;
 use crate::http::*;
 use crate::response::*;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use std::future::pending;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     time::{timeout, Duration},
 };
+use tokio_rustls::{rustls, TlsAcceptor};
+use tokio_util::either::Either;
 
-/// Sends a response message to a client.
 async fn send_response(
     stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
     response: HttpMessage,
@@ -20,7 +25,6 @@ async fn send_response(
     })
 }
 
-/// Both creates an HTTP error response and sends it over connection.
 async fn create_and_send_err_response(
     config: &Config,
     stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
@@ -30,7 +34,6 @@ async fn create_and_send_err_response(
     send_response(stream, response).await
 }
 
-/// Read in an HTTP header.
 async fn read_header(
     config: &Config,
     stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
@@ -75,7 +78,6 @@ async fn read_header(
     Ok(header)
 }
 
-/// Read in an HTTP body.
 async fn read_body(
     config: &Config,
     stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
@@ -106,8 +108,7 @@ async fn read_body(
     }
 }
 
-/// Handles an incoming connection from a client.
-pub async fn handle_connection(
+async fn handle_connection(
     config: &Config,
     stream: impl AsyncWriteExt + AsyncReadExt + Unpin,
     addr: SocketAddr,
@@ -190,6 +191,130 @@ pub async fn handle_connection(
         let response = process_request(config, &request).await;
         if send_response(&mut stream, response).await.is_err() || !request.header.is_persistent() {
             break 'connection;
+        }
+    }
+}
+
+async fn init_https(config: &'static Config) -> Result<(TcpListener, TlsAcceptor), ()> {
+    let certs =
+        match CertificateDer::pem_file_iter(format!("{}/crypt/public.pem", config.server_root)) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Error opening certificate file: {e}");
+                return Err(());
+            }
+        };
+    let certs = match certs.collect::<Result<Vec<_>, _>>() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error collecting certificates: {e}");
+            return Err(());
+        }
+    };
+
+    let key =
+        match PrivateKeyDer::from_pem_file(format!("{}/crypt/private.pem", config.server_root)) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Error opening private key file: {e}");
+                return Err(());
+            }
+        };
+    let config_s = match rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+    {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error configuring TLS: {e}");
+            return Err(());
+        }
+    };
+    let acceptor = TlsAcceptor::from(Arc::new(config_s));
+    let addr = format!("{}:{}", config.ip, config.port_https);
+    let listener = match TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Error binding HTTPS to address: {e}");
+            return Err(());
+        }
+    };
+    println!("Listening on {addr} for HTTPS...");
+
+    Ok((listener, acceptor))
+}
+
+pub async fn handle_connections(config: &'static Config, conn_sem: Arc<Semaphore>) {
+    // Initialize HTTP
+    let addr = format!("{}:{}", config.ip, config.port_http);
+    let listener = match TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Error binding HTTP to address: {e}");
+            return;
+        }
+    };
+    println!("Listening on {addr} for HTTP...");
+
+    // Initialize HTTPS if enabled
+    let https: Option<(TcpListener, TlsAcceptor)> = if config.https_enabled {
+        let Ok(s) = init_https(config).await else {
+            return;
+        };
+        Some(s)
+    } else {
+        None
+    };
+
+    // Handle connections
+    loop {
+        tokio::select! {
+            // Handle HTTP connections
+            connection = listener.accept() => {
+                let (stream, addr) = match connection {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Error handling incoming HTTP connection: {e}");
+                        continue;
+                    }
+                };
+                tokio::spawn(handle_connection(
+                    config,
+                    stream,
+                    addr,
+                    Arc::clone(&conn_sem),
+                ));
+            }
+
+            // Handle HTTPS connections if enabled, otherwise this future never returns
+            connection = if config.https_enabled {
+                let listener = &https.as_ref().expect("Will not fail since https is enabled").0;
+                Either::Left(listener.accept())
+            } else {
+                Either::Right(pending::<std::io::Result<(TcpStream, SocketAddr)>>())
+            } => {
+                let (stream, addr) = match connection {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Error handling incoming HTTPS connection: {e}");
+                        continue;
+                    }
+                };
+                let acceptor = &https.as_ref().expect("Will never get here if https is disabled").1;
+                let stream = match acceptor.accept(stream).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Error creating TLS stream: {e}");
+                        continue;
+                    }
+                };
+                tokio::spawn(handle_connection(
+                    config,
+                    stream,
+                    addr,
+                    Arc::clone(&conn_sem),
+                ));
+            }
         }
     }
 }

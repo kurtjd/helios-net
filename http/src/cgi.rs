@@ -3,7 +3,7 @@
 //! This is very simplistic and does the bare basics, but
 //! php-cgi is a pain in the ass and don't feel like doing more with it.
 //!
-//! Only supports processing form data, and not other types.
+//! Only supports processing form data, and not octet-streams.
 
 use crate::http::{HttpMessage, HttpMethod, HttpStatusCode};
 use crate::response::create_response;
@@ -20,7 +20,6 @@ fn php_cgi(method: HttpMethod, path: &Path, query_str: &str) -> tokio::process::
     cmd
 }
 
-/// Process a PHP file and return the result.
 pub async fn handle_php(
     path: &Path,
     query_str: &str,

@@ -4,7 +4,6 @@ use crate::http::*;
 use std::path::PathBuf;
 use tokio::{fs::File, io::AsyncReadExt};
 
-/// Handle request.
 async fn handle_request(config: &Config, request: &HttpMessage, send_body: bool) -> HttpMessage {
     // Check if the requested target is actually valid
     let Ok(target) = request.header.request_line().target.parse::<Target>() else {
@@ -51,7 +50,6 @@ async fn handle_request(config: &Config, request: &HttpMessage, send_body: bool)
     create_response(HttpStatusCode::Ok, Some(body), send_body)
 }
 
-/// Processes an HTTP request if able and returns a response message.
 pub async fn process_request(config: &Config, request: &HttpMessage) -> HttpMessage {
     match request.header.request_line().method {
         HttpMethod::Get | HttpMethod::Post => handle_request(config, request, true).await,
@@ -59,7 +57,6 @@ pub async fn process_request(config: &Config, request: &HttpMessage) -> HttpMess
     }
 }
 
-/// Creates an error response with a mapped error body.
 pub async fn create_error_response(config: &Config, status_code: HttpStatusCode) -> HttpMessage {
     let path = match status_code {
         HttpStatusCode::BadRequest => "400.html",
@@ -89,7 +86,6 @@ pub async fn create_error_response(config: &Config, status_code: HttpStatusCode)
     create_response(status_code, Some(body), true)
 }
 
-/// Creates a response with server-specific fields.
 pub fn create_response(
     status_code: HttpStatusCode,
     body: Option<Vec<u8>>,
