@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::http::*;
 use crate::response::*;
 use std::net::SocketAddr;
@@ -8,11 +9,6 @@ use tokio::{
     net::TcpStream,
     time::{timeout, Duration},
 };
-
-const MAX_HEADER_LEN: usize = 8 * 1024;
-const MAX_BODY_LEN: usize = 1024 * 1024;
-
-// TODO: Set up default pages for error codes
 
 /// Sends a response message to a client.
 async fn send_response(
@@ -27,15 +23,16 @@ async fn send_response(
 
 /// Both creates an HTTP error response and sends it over connection.
 async fn create_and_send_err_response(
+    config: &Config,
     stream: &mut BufReader<TcpStream>,
     status_code: HttpStatusCode,
 ) -> std::io::Result<()> {
-    let response = create_error_response(status_code).await;
+    let response = create_error_response(config, status_code).await;
     send_response(stream, response).await
 }
 
 /// Read in an HTTP header.
-async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
+async fn read_header(config: &Config, stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
     let mut header = String::new();
     let read_timeout = Duration::from_secs(5);
 
@@ -48,20 +45,27 @@ async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
             }
             Ok(Err(e)) => {
                 eprintln!("Error reading from stream: {e}");
-                let _ =
-                    create_and_send_err_response(stream, HttpStatusCode::InternalServorError).await;
+                let _ = create_and_send_err_response(
+                    config,
+                    stream,
+                    HttpStatusCode::InternalServorError,
+                )
+                .await;
                 return Err(());
             }
             Err(_) => {
                 println!("Timeout, closing connection...");
-                let _ = create_and_send_err_response(stream, HttpStatusCode::RequestTimeout).await;
+                let _ =
+                    create_and_send_err_response(config, stream, HttpStatusCode::RequestTimeout)
+                        .await;
                 return Err(());
             }
             _ => (),
         }
 
-        if header.len() > MAX_HEADER_LEN {
-            let _ = create_and_send_err_response(stream, HttpStatusCode::ContentTooLarge).await;
+        if header.len() > config.max_header_len {
+            let _ =
+                create_and_send_err_response(config, stream, HttpStatusCode::ContentTooLarge).await;
             return Err(());
         }
     }
@@ -70,7 +74,11 @@ async fn read_header(stream: &mut BufReader<TcpStream>) -> Result<String, ()> {
 }
 
 /// Read in an HTTP body.
-async fn read_body(stream: &mut BufReader<TcpStream>, length: usize) -> Result<Vec<u8>, ()> {
+async fn read_body(
+    config: &Config,
+    stream: &mut BufReader<TcpStream>,
+    length: usize,
+) -> Result<Vec<u8>, ()> {
     let read_timeout = Duration::from_secs(5);
     let mut body = vec![0; length];
 
@@ -81,12 +89,15 @@ async fn read_body(stream: &mut BufReader<TcpStream>, length: usize) -> Result<V
         }
         Ok(Err(e)) => {
             eprintln!("Error reading from stream: {e}");
-            let _ = create_and_send_err_response(stream, HttpStatusCode::InternalServorError).await;
+            let _ =
+                create_and_send_err_response(config, stream, HttpStatusCode::InternalServorError)
+                    .await;
             Err(())
         }
         Err(_) => {
             println!("Timeout, closing connection...");
-            let _ = create_and_send_err_response(stream, HttpStatusCode::RequestTimeout).await;
+            let _ =
+                create_and_send_err_response(config, stream, HttpStatusCode::RequestTimeout).await;
             Err(())
         }
         _ => Ok(body),
@@ -94,11 +105,18 @@ async fn read_body(stream: &mut BufReader<TcpStream>, length: usize) -> Result<V
 }
 
 /// Handles an incoming connection from a client.
-pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Arc<Semaphore>) {
+pub async fn handle_connection(
+    config: &Config,
+    stream: TcpStream,
+    addr: SocketAddr,
+    conn_sem: Arc<Semaphore>,
+) {
     let mut stream = BufReader::new(stream);
     if conn_sem.try_acquire().is_err() {
         println!("Server overloaded, ignoring connection.");
-        let _ = create_and_send_err_response(&mut stream, HttpStatusCode::ServiceUnavailable).await;
+        let _ =
+            create_and_send_err_response(config, &mut stream, HttpStatusCode::ServiceUnavailable)
+                .await;
         return;
     }
 
@@ -107,9 +125,13 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
     // Loop until timeout or EOF (unless keep-alive is disabled)
     'connection: loop {
         // Read and parse header
-        let Ok(header) = read_header(&mut stream).await else {
-            let _ = create_and_send_err_response(&mut stream, HttpStatusCode::InternalServorError)
-                .await;
+        let Ok(header) = read_header(config, &mut stream).await else {
+            let _ = create_and_send_err_response(
+                config,
+                &mut stream,
+                HttpStatusCode::InternalServorError,
+            )
+            .await;
             break 'connection;
         };
 
@@ -123,30 +145,37 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
                     _ => HttpStatusCode::BadRequest,
                 };
 
-                let _ = create_and_send_err_response(&mut stream, status_code).await;
+                let _ = create_and_send_err_response(config, &mut stream, status_code).await;
                 break 'connection;
             }
         };
 
         // Client sent us a response? Ignore.
         if !header.is_request() {
-            let _ = create_and_send_err_response(&mut stream, HttpStatusCode::BadRequest).await;
+            let _ =
+                create_and_send_err_response(config, &mut stream, HttpStatusCode::BadRequest).await;
             break 'connection;
         };
 
         // If request contains body, read it
         let body = if let Some(length) = header.field_lines.get("content-length") {
             let Ok(length) = length.parse() else {
-                let _ = create_and_send_err_response(&mut stream, HttpStatusCode::BadRequest).await;
+                let _ =
+                    create_and_send_err_response(config, &mut stream, HttpStatusCode::BadRequest)
+                        .await;
                 break 'connection;
             };
 
-            if length > MAX_BODY_LEN {
-                let _ = create_and_send_err_response(&mut stream, HttpStatusCode::ContentTooLarge)
-                    .await;
+            if length > config.max_body_len {
+                let _ = create_and_send_err_response(
+                    config,
+                    &mut stream,
+                    HttpStatusCode::ContentTooLarge,
+                )
+                .await;
                 break 'connection;
             }
-            match read_body(&mut stream, length).await {
+            match read_body(config, &mut stream, length).await {
                 Ok(body) => Some(body),
                 Err(_) => break 'connection,
             }
@@ -156,7 +185,7 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, conn_sem: Ar
 
         // Perform what is asked from request
         let request = HttpMessage { header, body };
-        let response = process_request(&request).await;
+        let response = process_request(config, &request).await;
         if send_response(&mut stream, response).await.is_err() || !request.header.is_persistent() {
             break 'connection;
         }

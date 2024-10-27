@@ -1,18 +1,17 @@
 use crate::cgi::handle_php;
+use crate::config::Config;
 use crate::http::*;
 use std::path::PathBuf;
 use tokio::{fs::File, io::AsyncReadExt};
 
-const SERVER_ROOT: &str = "/home/kurtjd/www";
-
 /// Handle request.
-async fn handle_request(request: &HttpMessage, send_body: bool) -> HttpMessage {
+async fn handle_request(config: &Config, request: &HttpMessage, send_body: bool) -> HttpMessage {
     // Check if the requested target is actually valid
     let Ok(target) = request.header.request_line().target.parse::<Target>() else {
-        return create_error_response(HttpStatusCode::BadRequest).await;
+        return create_error_response(config, HttpStatusCode::BadRequest).await;
     };
 
-    let mut path = PathBuf::from(format!("{SERVER_ROOT}/public/{}", target.path));
+    let mut path = PathBuf::from(format!("{}/public/{}", config.server_root, target.path));
 
     // Open index if path points to a folder
     if path.is_dir() {
@@ -21,7 +20,7 @@ async fn handle_request(request: &HttpMessage, send_body: bool) -> HttpMessage {
 
     // Then check if it exists on the server
     if !path.exists() {
-        return create_error_response(HttpStatusCode::NotFound).await;
+        return create_error_response(config, HttpStatusCode::NotFound).await;
     }
 
     // Handle PHP files
@@ -34,34 +33,34 @@ async fn handle_request(request: &HttpMessage, send_body: bool) -> HttpMessage {
         {
             msg
         } else {
-            create_error_response(HttpStatusCode::InternalServorError).await
+            create_error_response(config, HttpStatusCode::InternalServorError).await
         };
     }
 
     // Try to open the requested file
     let Ok(mut file) = File::open(path).await else {
-        return create_error_response(HttpStatusCode::InternalServorError).await;
+        return create_error_response(config, HttpStatusCode::InternalServorError).await;
     };
 
     // And finally try to read it
     let mut body = Vec::new();
     if file.read_to_end(&mut body).await.is_err() {
-        return create_error_response(HttpStatusCode::InternalServorError).await;
+        return create_error_response(config, HttpStatusCode::InternalServorError).await;
     }
 
     create_response(HttpStatusCode::Ok, Some(body), send_body)
 }
 
 /// Processes an HTTP request if able and returns a response message.
-pub async fn process_request(request: &HttpMessage) -> HttpMessage {
+pub async fn process_request(config: &Config, request: &HttpMessage) -> HttpMessage {
     match request.header.request_line().method {
-        HttpMethod::Get | HttpMethod::Post => handle_request(request, true).await,
-        HttpMethod::Head => handle_request(request, false).await,
+        HttpMethod::Get | HttpMethod::Post => handle_request(config, request, true).await,
+        HttpMethod::Head => handle_request(config, request, false).await,
     }
 }
 
 /// Creates an error response with a mapped error body.
-pub async fn create_error_response(status_code: HttpStatusCode) -> HttpMessage {
+pub async fn create_error_response(config: &Config, status_code: HttpStatusCode) -> HttpMessage {
     let path = match status_code {
         HttpStatusCode::BadRequest => "400.html",
         HttpStatusCode::NotFound => "404.html",
@@ -72,7 +71,7 @@ pub async fn create_error_response(status_code: HttpStatusCode) -> HttpMessage {
         HttpStatusCode::HTTPVersionNotSupported => "505.html",
         _ => "500.html", // Internal servor error
     };
-    let path = PathBuf::from(format!("{SERVER_ROOT}/errors/{}", path));
+    let path = PathBuf::from(format!("{}/errors/{}", config.server_root, path));
 
     // Try to open and read the error file
     let default_err = b"Unknown error occurred.".to_vec();
