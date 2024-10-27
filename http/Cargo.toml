@@ -1,0 +1,12 @@
+[package]
+name = "helios-http"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.38"
+percent-encoding = "2.3.1"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.26.0"
+tokio-util = "0.7.12"
+url = "2.5.2"
