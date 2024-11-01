@@ -39,7 +39,7 @@ async fn read_header(
     stream: &mut BufReader<impl AsyncWriteExt + AsyncReadExt + Unpin>,
 ) -> Result<String, ()> {
     let mut header = String::new();
-    let read_timeout = Duration::from_secs(5);
+    let read_timeout = Duration::from_secs(config.max_timeout);
 
     // Read and parse header
     while !header.ends_with("\r\n\r\n") {
